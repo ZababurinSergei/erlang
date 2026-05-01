@@ -37,7 +37,8 @@ start(_StartType, _StartArgs) ->
 
     io:format("kafka_demo started with ~p~n", [ClientId]),
 
-    {ok, #{sup_pid => SupPid}}.
+    %% ИСПРАВЛЕНИЕ: возвращаем {ok, pid()} вместо {ok, map()}
+    {ok, SupPid}.
 
 pre_stop(State) ->
     %% Graceful shutdown

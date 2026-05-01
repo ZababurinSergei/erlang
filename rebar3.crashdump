@@ -1,0 +1,13 @@
+Error: {badmatch,
+           {error,
+               {rebar_app_utils,
+                   {missing_package,<<"kafka_protocol">>,<<"4.4.0">>}}}}
+[{rebar_prv_clean,do,1,[{file,"rebar_prv_clean.erl"},{line,49}]},
+ {rebar_core,do,2,[{file,"rebar_core.erl"},{line,155}]},
+ {rebar3,run_aux,2,[{file,"rebar3.erl"},{line,205}]},
+ {rebar3,main,1,[{file,"rebar3.erl"},{line,66}]},
+ {escript,run,2,[{file,"escript.erl"},{line,906}]},
+ {escript,start,1,[{file,"escript.erl"},{line,420}]},
+ {init,start_it,1,[]},
+ {init,start_em,1,[]}]
+
