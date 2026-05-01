@@ -48,7 +48,4 @@ declaration
 **/index.bundle.mjs/**
 **/index.bundle.mjs.map/**
 _build
-kafka
 rebar.lock
-test.md
-version.md

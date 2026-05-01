@@ -56,17 +56,68 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+%% Обработка сообщений от consumer-процесса
+%% Формат: {ConsumerPid, {kafka_message_set, Topic, Partition, FirstOffset, Messages}}
+handle_info({_ConsumerPid, {kafka_message_set, Topic, Partition, FirstOffset, Messages}}, State) ->
+    io:format("~n=== Kafka Message Set ===~n"),
+    io:format("Topic: ~p~n", [Topic]),
+    io:format("Partition: ~p~n", [Partition]),
+    io:format("First offset: ~p~n", [FirstOffset]),
+    io:format("Message count: ~p~n", [length(Messages)]),
+
+    lists:foreach(fun(#kafka_message{offset=O, key=K, value=V}) ->
+        io:format("  ~n  --- Message ---~n"),
+        io:format("  Offset: ~p~n", [O]),
+        io:format("  Key: ~p~n", [K]),
+        io:format("  Value: ~s~n", [V]),
+
+        %% Отправляем в gen_server для статистики
+        gen_server:cast(kafka_gen_server, {kafka_message, Partition, O, V})
+                  end, Messages),
+
+    gen_event:notify(kafka_event_manager, {messages_received, Partition, length(Messages)}),
+    {noreply, State};
+
+%% Альтернативный формат: {kafka_message_set, Topic, Partition, FirstOffset, Messages} (без PID)
+handle_info({kafka_message_set, Topic, Partition, FirstOffset, Messages}, State) ->
+    io:format("~n=== Kafka Message Set (no PID) ===~n"),
+    io:format("Topic: ~p~n", [Topic]),
+    io:format("Partition: ~p~n", [Partition]),
+    io:format("First offset: ~p~n", [FirstOffset]),
+    io:format("Message count: ~p~n", [length(Messages)]),
+
+    lists:foreach(fun(#kafka_message{offset=O, key=K, value=V}) ->
+        io:format("  ~n  --- Message ---~n"),
+        io:format("  Offset: ~p~n", [O]),
+        io:format("  Key: ~p~n", [K]),
+        io:format("  Value: ~s~n", [V]),
+
+        gen_server:cast(kafka_gen_server, {kafka_message, Partition, O, V})
+                  end, Messages),
+
+    gen_event:notify(kafka_event_manager, {messages_received, Partition, length(Messages)}),
+    {noreply, State};
+
+%% Обработка одиночных сообщений (старый формат с оберткой brod)
 handle_info({brod, ?CLIENT, ?TOPIC, Partition, #kafka_message{offset=O, key=K, value=V}}, State) ->
-    io:format("~n>>> MSG: p=~p, o=~p, k=~p, v=~s~n", [Partition, O, K, V]),
+    io:format("~n--- Kafka Message ---~n"),
+    io:format("Partition: ~p~n", [Partition]),
+    io:format("Offset: ~p~n", [O]),
+    io:format("Key: ~p~n", [K]),
+    io:format("Value: ~s~n", [V]),
+    io:format("--------------------~n"),
+
     gen_server:cast(kafka_gen_server, {kafka_message, Partition, O, V}),
     gen_event:notify(kafka_event_manager, {message_received, Partition, O}),
     {noreply, State};
 
+%% Отладочный вывод для непонятных сообщений
 handle_info(Info, State) ->
-    io:format("~n[DEBUG] ~p~n", [Info]),
+    io:format("~n[DEBUG] Unexpected message: ~p~n", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    io:format("kafka_console_printer terminating~n"),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

@@ -1,3 +1,2 @@
-+name kafka_demo@127.0.0.1
-+setcookie kafka_demo_cookie
-+heart
+-name kafka_demo@127.0.0.1
+-setcookie kafka_demo_cookie

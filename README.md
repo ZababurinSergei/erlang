@@ -1,10 +1,37 @@
 # Kafka Demo on Erlang/OTP
 
-## Описание приложения
+## 📚 Содержание
+
+1. [Описание проекта](#описание-проекта)
+2. [Архитектура](#архитектура)
+   - [Компоненты OTP](#компоненты-otp)
+   - [Схема взаимодействия](#схема-взаимодействия)
+   - [Поток данных](#поток-данных)
+3. [Требования](#требования)
+4. [Установка и сборка](#установка-и-сборка)
+5. [Конфигурация](#конфигурация)
+6. [Способы запуска](#способы-запуска)
+   - [Режим 1: Интерактивная консоль (разработка)](#режим-1-интерактивная-консоль-разработка)
+   - [Режим 2: Production релиз](#режим-2-production-релиз)
+   - [Режим 3: Распределённый запуск](#режим-3-распределённый-запуск)
+7. [Выполняемая работа](#выполняемая-работа)
+   - [Что делает приложение](#что-делает-приложение)
+   - [Демонстрируемые возможности OTP](#демонстрируемые-возможности-otp)
+8. [Тестирование](#тестирование)
+9. [Мониторинг и отладка](#мониторинг-и-отладка)
+10. [Устранение неполадок](#устранение-неполадок)
+
+---
+
+## Описание проекта
 
 Демонстрационное приложение на **Erlang/OTP**, которое подключается к Apache Kafka, читает сообщения из топика и обрабатывает их с использованием всех ключевых компонентов OTP.
 
-### Демонстрируемые компоненты OTP
+---
+
+## Архитектура
+
+### Компоненты OTP
 
 | Компонент | Реализация | Назначение |
 |-----------|------------|------------|
@@ -15,9 +42,8 @@
 | **Application Resource File** | `kafka_demo.app` | Метаданные приложения, зависимости, модули |
 | **Release** | `relx.config` + `vm.args` | Сборка production-ready релиза |
 | **Distributed Erlang** | `global:register_name/2` | Регистрация процессов в кластере |
-| **Logger** | `logger:set_primary_config/2` | OTP системное логирование |
 
-### Архитектура
+### Схема взаимодействия
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -58,18 +84,21 @@
 3. `kafka_console_printer` → `gen_server:cast()` → `kafka_gen_server`
 4. `kafka_gen_server` хранит статистику (счётчик сообщений, последний offset)
 
+---
+
 ## Требования
 
-- Erlang/OTP 24 или выше
+- Erlang/OTP 24 или выше (рекомендуется 28)
 - Apache Kafka (локально или удалённо)
 - rebar3
+
+---
 
 ## Установка и сборка
 
 ```bash
 # Клонирование проекта
-git clone <repo-url>
-cd kafka_demo
+cd ~/kafka_demo
 
 # Сборка зависимостей и компиляция
 rebar3 compile
@@ -81,35 +110,48 @@ rebar3 eunit
 rebar3 release
 ```
 
+---
+
 ## Конфигурация
 
-### Kafka подключение
-
-По умолчанию приложение ожидает Kafka на `localhost:9092`.
-Изменить параметры можно в `config/sys.config`:
+### Основные параметры (`config/sys.config`)
 
 ```erlang
 [
  {brod, [
+    {auto_start_client, true},
+    {default_client_id, my_kafka_client},
     {clients, [
         {my_kafka_client, [
-            {endpoints, [{"your-kafka-host", 9092}]}
+            {endpoints, [{"localhost", 9092}]},
+            {reconnect_cool_down_seconds, 10}
         ]}
     ]}
+ ]},
+ {kafka_demo, [
+    {kafka_hosts, [{"localhost", 9092}]},
+    {client_id, my_kafka_client},
+    {topic, <<"my-test-topic">>},
+    {consumer_group, <<"kafka-demo-group">>},
+    {begin_offset, earliest},
+    {test_mode, false}
  ]}
 ].
 ```
 
-### Топик
-
-По умолчанию используется топик `<<"my-test-topic">>`.
-Создайте его в Kafka перед запуском:
+### Создание топика в Kafka
 
 ```bash
-kafka-topics --create --topic my-test-topic --bootstrap-server localhost:9092 --partitions 3 --replication-factor 1
+/opt/kafka/bin/kafka-topics.sh --create \
+  --topic my-test-topic \
+  --bootstrap-server localhost:9092 \
+  --partitions 3 \
+  --replication-factor 1
 ```
 
-## Запуск
+---
+
+## Способы запуска
 
 ### Режим 1: Интерактивная консоль (разработка)
 
@@ -126,8 +168,8 @@ application:start(kafka_demo).
 %% Проверка статистики
 kafka_gen_server:get_stats().
 
-%% Отправка тестового сообщения (для отладки)
-gen_server:cast(kafka_gen_server, {kafka_message, 0, 999, <<"test">>}).
+%% Отправка тестового сообщения
+brod:produce_sync(my_kafka_client, <<"my-test-topic">>, 0, <<>>, <<"test">>).
 
 %% Остановка приложения
 application:stop(kafka_demo).
@@ -148,14 +190,11 @@ _build/default/rel/kafka_demo_release/bin/kafka_demo_release start
 # Остановка
 _build/default/rel/kafka_demo_release/bin/kafka_demo_release stop
 
-# Просмотр статуса
-_build/default/rel/kafka_demo_release/bin/kafka_demo_release status
-
 # Подключение к запущенному узлу
 _build/default/rel/kafka_demo_release/bin/kafka_demo_release remote_console
 ```
 
-### Режим 3: Распределённый запуск (несколько нод)
+### Режим 3: Распределённый запуск
 
 ```bash
 # Нода 1
@@ -163,83 +202,101 @@ erl -sname demo1 -setcookie demo_cookie -config config/sys.config
 > application:start(kafka_demo).
 
 # Нода 2
-erl -sname demo2 -setcookie demo_cookie -config config/sys.config
+erl -sname demo2 -setcookie demo_cookie
 > global:whereis_name(kafka_demo_sup).  % Должен вернуть pid из demo1
 ```
 
+---
+
+## Выполняемая работа
+
+### Что делает приложение
+
+1. **Подключается к Kafka** через клиентскую библиотеку `brod`
+2. **Подписывается на топик** `my-test-topic` (все 3 партиции)
+3. **Принимает сообщения** из Kafka в реальном времени
+4. **Выводит сообщения** в консоль в отформатированном виде
+5. **Ведёт статистику**:
+    - Общее количество полученных сообщений
+    - Последний полученный offset
+    - Время запуска
+6. **Генерирует события** каждые 100 сообщений
+7. **Обеспечивает отказоустойчивость** через супервизор
+
+### Демонстрируемые возможности OTP
+
+| Возможность | Как демонстрируется |
+|-------------|---------------------|
+| **Application behaviour** | Управление стартом/стопом приложения, пред-остановка |
+| **Supervisor (rest_for_one)** | При падении subscriber перезапускаются только зависимые процессы |
+| **gen_server** | Хранение статистики, синхронные вызовы (`get_stats`) |
+| **gen_event** | Динамическое добавление/удаление обработчиков событий |
+| **Release сборка** | Production-ready релиз с `vm.args` и `sys.config` |
+| **Distributed Erlang** | Глобальная регистрация процессов через `global` |
+| **Logger** | Системное логирование OTP |
+
+---
+
 ## Тестирование
 
-### Запуск всех тестов
-
 ```bash
+# Запуск всех тестов
 rebar3 eunit
+
+# Запуск с детализацией
+rebar3 eunit --verbose
 ```
 
-### Отправка тестовых сообщений в Kafka
+### Отправка тестовых сообщений
 
-Используя Kafka CLI:
-
+**Через Kafka CLI:**
 ```bash
-# Producer
-kafka-console-producer --topic my-test-topic --bootstrap-server localhost:9092
-> Hello from Kafka
-> Message 2
-> {"json": "data"}
+/opt/kafka/bin/kafka-console-producer.sh \
+  --topic my-test-topic \
+  --bootstrap-server localhost:9092
+> Hello World
+> Test message
 ```
 
-Используя `brod` из консоли Erlang:
-
+**Через Erlang shell:**
 ```erlang
-%% Отправка сообщения через brod
-brod:produce_sync(my_kafka_client, <<"my-test-topic">>, 0, <<"key">>, <<"value">>).
+%% Одиночное сообщение
+brod:produce_sync(my_kafka_client, <<"my-test-topic">>, 0, <<>>, <<"test">>).
+
+%% Пакетная отправка (100 сообщений)
+lists:foreach(fun(I) ->
+    brod:produce_sync(my_kafka_client, <<"my-test-topic">>, 0,
+                      <<>>, list_to_binary("Msg " ++ integer_to_list(I)))
+end, lists:seq(1, 100)).
 ```
 
-### Мониторинг и отладка
+---
+
+## Мониторинг и отладка
 
 ```erlang
-%% Просмотр состояния gen_server
-sys:get_status(kafka_gen_server).
+%% Просмотр статистики
+kafka_gen_server:get_stats().
+kafka_gen_server:get_messages_count().
+kafka_gen_server:reset_stats().
 
-%% Просмотр дерева супервизии
+%% Дерево супервизии
 supervisor:which_children(kafka_demo_sup).
 
-%% Просмотр зарегистрированных процессов
-registered().
-
-%% Просмотр событий в event manager
+%% Event manager handlers
 gen_event:which_handlers(kafka_event_manager).
 
-%% Получение статистики
-kafka_gen_server:get_stats().
+%% Зарегистрированные процессы
+registered().
+
+%% Глобальная регистрация
+global:whereis_name(kafka_demo_sup).
+
+%% Состояние gen_server
+sys:get_status(kafka_gen_server).
 ```
 
-## Ожидаемый вывод
-
-При успешном запуске и получении сообщения из Kafka:
-
-```
---- Kafka Message ---
-Topic: my-test-topic
-Partition: 0
-Offset: 42
-Key: some_key
-Value: Hello from Kafka
----------------------
-
-[STATS] Processed 100 messages
-```
-
-## Требования к собеседованию (checklist)
-
-- [x] Application behaviour (`kafka_demo_app.erl`)
-- [x] Top-level supervisor (`kafka_demo_sup.erl`) со стратегией `rest_for_one`
-- [x] Application resource file (`kafka_demo.app`)
-- [x] Release configuration (`relx.config` + `vm.args`)
-- [x] `gen_server` для хранения состояния (`kafka_gen_server.erl`)
-- [x] `gen_event` для событийной модели (`kafka_event_manager.erl` + `kafka_stats_event.erl`)
-- [x] Интеграция с Kafka через `brod`
-- [x] Тесты (EUnit)
-- [x] Документация (README.md)
+---
 
 ## Устранение неполадок
 
@@ -247,20 +304,23 @@ Value: Hello from Kafka
 
 **Ошибка:** `{error, {brod_client, start_link, ...}}`
 
-**Решение:** Убедитесь, что Kafka запущена и доступна:
-
+**Решение:**
 ```bash
-kafka-topics --list --bootstrap-server localhost:9092
+sudo systemctl status kafka
+sudo systemctl start kafka
 ```
 
 ### Топик не существует
 
 **Ошибка:** `{error, {topic_not_found, ...}}`
 
-**Решение:** Создайте топик:
-
+**Решение:**
 ```bash
-kafka-topics --create --topic my-test-topic --bootstrap-server localhost:9092
+/opt/kafka/bin/kafka-topics.sh --create \
+  --topic my-test-topic \
+  --bootstrap-server localhost:9092 \
+  --partitions 3 \
+  --replication-factor 1
 ```
 
 ### Cookie mismatch при distributed режиме
@@ -268,11 +328,46 @@ kafka-topics --create --topic my-test-topic --bootstrap-server localhost:9092
 **Ошибка:** `Connection attempt from node with wrong cookie`
 
 **Решение:** Запускайте ноды с одинаковым cookie:
-
 ```bash
 erl -sname node1 -setcookie same_cookie
 erl -sname node2 -setcookie same_cookie
 ```
+
+### Релиз не запускается из-за logger
+
+**Решение:** Убедитесь, что в `config/sys.config` нет секции `logger` (или она корректна для вашей версии Erlang/OTP).
+
+---
+
+## Ожидаемый вывод при успешном запуске
+
+```
+Starting kafka_demo application...
+kafka_stats_event handler added successfully
+kafka_demo started with my_kafka_client
+
+========================================
+kafka_console_printer starting...
+========================================
+✓ Subscribed to partition 0
+✓ Subscribed to partition 1
+✓ Subscribed to partition 2
+========================================
+kafka_console_printer ready!
+Waiting for messages...
+========================================
+
+--- Kafka Message ---
+Partition: 0
+Offset: 42
+Key: <<>>
+Value: Hello from Kafka!
+---------------------
+
+[STATS] Processed 100 messages
+```
+
+---
 
 ## Лицензия
 
